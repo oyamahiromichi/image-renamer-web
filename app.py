@@ -87,14 +87,34 @@ try:
         with st.spinner("OCRエンジン初期化中..."):
             renamer.initialize_ocr()
         
-        if debug_mode:
-            st.success("✅ OCRエンジン初期化完了")
-            try:
-                import pytesseract
-                version = pytesseract.get_tesseract_version()
-                st.info(f"📌 Tesseract バージョン: {version}")
-            except Exception as e:
-                st.warning(f"⚠️ Tesseractバージョン取得失敗: {e}")
+if use_ocr:
+    with st.spinner("OCRエンジン初期化中..."):
+        renamer.initialize_ocr()
+    
+    if debug_mode:
+        st.success("✅ OCRエンジン初期化完了")
+        
+        # Tesseract確認
+        try:
+            import subprocess
+            result = subprocess.run(['tesseract', '--version'], 
+                                  capture_output=True, text=True, timeout=5)
+            
+            if result.returncode == 0:
+                st.info(f"📌 Tesseract インストール確認OK")
+                with st.expander("詳細を表示"):
+                    st.code(result.stdout)
+            else:
+                st.warning("⚠️ Tesseractコマンドが実行できません")
+                
+        except FileNotFoundError:
+            st.error("❌ Tesseractがインストールされていません")
+            
+        except subprocess.TimeoutExpired:
+            st.warning("⚠️ Tesseractコマンドがタイムアウトしました")
+            
+        except Exception as e:
+            st.warning(f"⚠️ Tesseract確認エラー: {e}")
     
 except Exception as e:
     st.error(f"❌ 初期化エラー: {e}")
