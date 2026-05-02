@@ -56,7 +56,6 @@ with st.expander("📸 アップロードされた画像を確認", expanded=Fal
     cols = st.columns(4)
     for idx, file in enumerate(uploaded_files[:8]):
         with cols[idx % 4]:
-            # 🔧 修正: seek(0)でファイルポインタをリセット
             file.seek(0)
             image = Image.open(file)
             st.image(image, caption=file.name, use_column_width=True)
@@ -74,30 +73,22 @@ file_paths = []
 # ファイルを一時保存
 with st.spinner("画像を準備中..."):
     for file in uploaded_files:
-        # 🔧 修正: seek(0)でファイルポインタをリセット
         file.seek(0)
-        
         temp_path = os.path.join(temp_dir, file.name)
-        
-        # ファイルを保存
         with open(temp_path, "wb") as f:
             f.write(file.read())
-        
         file_paths.append(temp_path)
 
 # ImageRenamer初期化
 try:
     renamer = ImageRenamer(file_paths)
     
-    # OCR初期化
     if use_ocr:
         with st.spinner("OCRエンジン初期化中..."):
             renamer.initialize_ocr()
         
         if debug_mode:
             st.success("✅ OCRエンジン初期化完了")
-            
-            # Tesseractバージョン確認
             try:
                 import pytesseract
                 version = pytesseract.get_tesseract_version()
@@ -117,7 +108,6 @@ if debug_mode:
     st.markdown("---")
     st.subheader("🔍 デバッグ情報")
     
-    # 最初の1枚だけ詳細表示（全部やると重い）
     for idx in range(min(1, len(file_paths))):
         tmp_path = file_paths[idx]
         uploaded_file = uploaded_files[idx]
@@ -127,13 +117,11 @@ if debug_mode:
             col1, col2 = st.columns([1, 2])
             
             with col1:
-                # 画像表示
                 image = Image.open(tmp_path)
                 st.image(image, caption=uploaded_file.name, use_column_width=True)
             
             with col2:
                 try:
-                    # 通常OCR結果
                     st.markdown("##### 🔍 通常OCR結果")
                     with st.spinner("OCR実行中..."):
                         ocr_results = renamer.perform_ocr(tmp_path)
@@ -145,7 +133,6 @@ if debug_mode:
                     else:
                         st.warning("⚠️ テキストが検出されませんでした")
                     
-                    # 情報板OCR結果
                     st.markdown("##### 🟩 情報板OCR結果")
                     with st.spinner("情報板OCR実行中..."):
                         panel_results = renamer.perform_info_panel_ocr(tmp_path)
@@ -157,7 +144,6 @@ if debug_mode:
                     else:
                         st.warning("⚠️ 情報板からテキストが検出されませんでした")
                     
-                    # ラベル情報抽出結果
                     if panel_results:
                         labeled_info = renamer.extract_labeled_panel_info(panel_results)
                         if labeled_info:
@@ -165,12 +151,9 @@ if debug_mode:
                             for label, value in labeled_info.items():
                                 st.text(f"{label}: {value}")
                     
-```python
-                    # 生成されるファイル名
                     st.markdown("##### 📝 生成されるファイル名")
                     file_date = renamer.get_file_date(tmp_path)
                     new_name = renamer.generate_new_name(tmp_path, file_date)
-                    
                     st.code(f"元: {uploaded_file.name}\n→ {new_name}", language=None)
                     
                 except Exception as e:
@@ -182,6 +165,7 @@ if debug_mode:
 
 # ========== リネームプレビュー ==========
 
+```python
 st.markdown("---")
 st.subheader("📋 リネーム後のファイル名プレビュー")
 
@@ -195,15 +179,13 @@ with st.spinner("プレビュー生成中..."):
         st.stop()
 
 # プレビュー表示
-preview_container = st.container()
-with preview_container:
-    for old_path, new_name in preview_data:
-        old_name = os.path.basename(old_path)
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            st.text(f"📄 {old_name}")
-        with col2:
-            st.text(f"→ {new_name}")
+for old_path, new_name in preview_data:
+    old_name = os.path.basename(old_path)
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.text(f"📄 {old_name}")
+    with col2:
+        st.text(f"→ {new_name}")
 
 # ========== ダウンロード ==========
 
@@ -212,21 +194,17 @@ st.markdown("---")
 if st.button("🚀 リネーム実行してダウンロード", type="primary", use_container_width=True):
     with st.spinner("リネーム処理中..."):
         try:
-            # ZIPファイル作成
             zip_buffer = io.BytesIO()
             
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                 for old_path, new_name in preview_data:
-                    # ファイルをZIPに追加
                     zip_file.write(old_path, new_name)
             
             zip_buffer.seek(0)
             
-            # タイムスタンプ付きファイル名
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             zip_filename = f"renamed_images_{timestamp}.zip"
             
-            # ダウンロードボタン
             st.download_button(
                 label="📦 ZIPファイルをダウンロード",
                 data=zip_buffer,
@@ -244,7 +222,6 @@ if st.button("🚀 リネーム実行してダウンロード", type="primary", 
 
 # ========== クリーンアップ ==========
 
-# ページリロード時に一時ファイルをクリーンアップ
 def cleanup_temp_files():
     if 'temp_dir' in st.session_state:
         temp_dir = st.session_state.temp_dir
@@ -252,10 +229,9 @@ def cleanup_temp_files():
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
                 del st.session_state.temp_dir
-        except Exception as e:
+        except Exception:
             pass
 
-# セッション終了時のクリーンアップを登録
 if 'cleanup_registered' not in st.session_state:
     import atexit
     atexit.register(cleanup_temp_files)
@@ -267,83 +243,107 @@ st.markdown("---")
 
 with st.expander("💡 使い方・ヘルプ"):
     st.markdown("""
-    ### 📖 使い方
-    
-    1. **画像をアップロード**: 「Browse files」をクリックして複数枚選択
-    2. **設定を確認**: 左サイドバーで設定を調整
-    3. **デバッグモード**: OCRの詳細を確認したい場合はON
-    4. **プレビュー確認**: リネーム後のファイル名を確認
-    5. **ダウンロード**: 「リネーム実行してダウンロード」ボタンをクリック
-    
-    ---
-    
-    ### 📌 対応している画像形式
-    
-    - **JPG/JPEG** - 最も一般的な形式
-    - **PNG** - 透過対応
-    - **BMP** - Windows標準形式
-    - **GIF** - アニメーション対応
-    - **TIFF** - 高品質画像
-    
-    ---
-    
-    ### 🔧 OCRについて
-    
-    - **Tesseract OCR** を使用（日本語対応）
-    - 緑色の工事情報板から自動でテキストを抽出
-    - 以下の情報を認識します：
-      - 工事件名
-      - 工事場所
-      - 施工状況（施工前/施工中/施工後）
-    
-    ---
-    
-    ### ⚙️ 設定項目
-    
-    - **プレフィックス**: ファイル名の先頭に付ける文字列
-    - **日付を含める**: EXIF情報から撮影日を取得してファイル名に含める
-    - **OCR使用**: 画像内のテキストを認識してファイル名に反映
-    - **情報板位置**: 
-      - `auto`: 自動判定（推奨）
-      - `left`: 左側固定
-      - `right`: 右側固定
-    
-    ---
-    
-    ### ⚠️ 注意事項
-    
-    - **ファイルサイズ**: 1枚あたり最大200MB
-    - **処理時間**: 画像の枚数とサイズによって変わります
-    - **デバッグモード**: 詳細情報を確認できますが、処理が遅くなります
-    - **一時ファイル**: アップロードされたファイルは処理後に自動削除されます
-    
-    ---
-    
-    ### 🐛 トラブルシューティング
-    
-    **Q: OCRが文字を認識しない**
-    - デバッグモードをONにして、OCR結果を確認してください
-    - 画像が小さすぎたり、文字がぼやけている場合は認識できません
-    - 情報板の位置設定を変更してみてください
-    
-    **Q: ファイル名が正しくない**
-    - プレビューで確認してから実行してください
-    - 設定を調整して再度試してください
-    
-    **Q: ダウンロードできない**
-    - ブラウザのポップアップブロックを解除してください
-    - ファイルサイズが大きすぎる場合は枚数を減らしてください
-    
-    **Q: エラーが出る**
-    - デバッグモードをONにしてエラー内容を確認してください
-    - 画像ファイルが破損していないか確認してください
-    
-    ---
-    
-    ### 📧 お問い合わせ
-    
-    問題が解決しない場合は、デバッグモードのエラー内容をスクリーンショットしてお問い合わせください。
+### 📖 使い方
+
+1. **画像をアップロード**: 「Browse files」をクリックして複数枚選択
+2. **設定を確認**: 左サイドバーで設定を調整
+3. **デバッグモード**: OCRの詳細を確認したい場合はON
+4. **プレビュー確認**: リネーム後のファイル名を確認
+5. **ダウンロード**: 「リネーム実行してダウンロード」ボタンをクリック
+
+---
+
+### 📌 対応している画像形式
+
+- **JPG/JPEG** - 最も一般的な形式
+- **PNG** - 透過対応
+- **BMP** - Windows標準形式
+- **GIF** - アニメーション対応
+- **TIFF** - 高品質画像
+
+---
+
+### 🔧 OCRについて
+
+- **Tesseract OCR** を使用（日本語対応）
+- 緑色の工事情報板から自動でテキストを抽出
+- 以下の情報を認識します：
+  - 工事件名
+  - 工事場所
+  - 施工状況（施工前/施工中/施工後）
+
+---
+
+### ⚙️ 設定項目
+
+- **プレフィックス**: ファイル名の先頭に付ける文字列
+- **日付を含める**: EXIF情報から撮影日を取得してファイル名に含める
+- **OCR使用**: 画像内のテキストを認識してファイル名に反映
+- **情報板位置**: 
+  - `auto`: 自動判定（推奨）
+  - `left`: 左側固定
+  - `right`: 右側固定
+
+---
+
+### ⚠️ 注意事項
+
+- **ファイルサイズ**: 1枚あたり最大200MB
+- **処理時間**: 画像の枚数とサイズによって変わります
+- **デバッグモード**: 詳細情報を確認できますが、処理が遅くなります
+- **一時ファイル**: アップロードされたファイルは処理後に自動削除されます
+
+---
+
+### 🐛 トラブルシューティング
+
+**Q: OCRが文字を認識しない**
+- デバッグモードをONにして、OCR結果を確認してください
+- 画像が小さすぎたり、文字がぼやけている場合は認識できません
+- 情報板の位置設定を変更してみてください
+
+**Q: ファイル名が正しくない**
+- プレビューで確認してから実行してください
+- 設定を調整して再度試してください
+
+**Q: ダウンロードできない**
+- ブラウザのポップアップブロックを解除してください
+- ファイルサイズが大きすぎる場合は枚数を減らしてください
+
+**Q: エラーが出る**
+- デバッグモードをONにしてエラー内容を確認してください
+- 画像ファイルが破損していないか確認してください
+
+---
+
+### 📧 お問い合わせ
+
+問題が解決しない場合は、デバッグモードのエラー内容をスクリーンショットしてお問い合わせください。
     """)
 
 st.markdown("---")
 st.caption("📷 画像一括リネームツール v1.0 | Powered by Streamlit + Tesseract OCR")
+```
+
+---
+
+## ✅ これで完成です！
+
+### **GitHubで更新手順:**
+
+1. `app.py` を開く
+2. 既存の内容を **全て削除**
+3. 上記のコード（最初から最後まで）を **全てコピー&ペースト**
+4. **Commit changes**
+
+---
+
+### **確認事項:**
+
+- [ ] コードに ````python` という文字列が **含まれていない** ことを確認
+- [ ] インデントが **正しく揃っている** ことを確認
+- [ ] ファイルの **最後の行** が `st.caption(...)` で終わっていることを確認
+
+---
+
+**更新したら「デプロイ完了しました」と教えてください！** 🚀
