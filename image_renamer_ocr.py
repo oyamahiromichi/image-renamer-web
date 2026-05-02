@@ -562,233 +562,290 @@ class ImageRenamer:
         return panel_results
 
     def perform_ocr(self, image_path):
-        """OCR実行（EasyOCR + Tesseract複合版）
-        
-        優先順位:
-        1. 施工前 / 施工中 / 施工後
-        2. 重要キーワード（全文ではなくキーワードだけ残す）
-        3. 高信頼度全文（信頼度0.83以上）
-        
-        追加ルール:
-        - 1文字以下は除外
-        - 工事場所 / 施工状況 / 工事件名 は残さない
-        """
+    """OCR実行（Tesseract専用版・前処理強化）
+    
+    優先順位:
+    1. 施工前 / 施工中 / 施工後
+    2. 重要キーワード（全文ではなくキーワードだけ残す）
+    3. 高信頼度全文（信頼度0.70以上）
+    
+    追加ルール:
+    - 1文字以下は除外
+    - 工事場所 / 施工状況 / 工事件名 は残さない
+    """
 
-        HIGH_CONFIDENCE_THRESHOLD = 0.70
-        STATUS_WORDS = ["施工前", "施工中", "施工後"]
-        IGNORE_LABELS = ["工事場所", "施工状況", "工事件名"]
+    HIGH_CONFIDENCE_THRESHOLD = 0.70
+    STATUS_WORDS = ["施工前", "施工中", "施工後"]
+    IGNORE_LABELS = ["工事場所", "施工状況", "工事件名"]
 
-        if not USE_OCR:
+    if not USE_OCR:
+        return []
+
+    # キャッシュ
+    if image_path in self.ocr_cache:
+        return self.ocr_cache[image_path]
+
+    def strip_labels(text):
+        """不要ラベルを除去"""
+        cleaned = self.clean_ocr_text(text)
+        for label in IGNORE_LABELS:
+            cleaned = cleaned.replace(label, '')
+        cleaned = re.sub(r'\s+', '', cleaned).strip()
+        return cleaned
+
+    def extract_statuses(text):
+        """施工前/中/後を抽出"""
+        found = []
+        for status in STATUS_WORDS:
+            if status in text and status not in found:
+                found.append(status)
+        return found
+
+    def extract_keywords(text):
+        """重要キーワードを抽出（全文ではなくキーワードだけ返す）"""
+        found = []
+        normalized = re.sub(r'\s+', '', self.clean_ocr_text(text))
+        for kw in IMPORTANT_KEYWORDS:
+            kw_norm = re.sub(r'\s+', '', self.clean_ocr_text(kw))
+            if kw_norm and kw_norm in normalized and kw not in found:
+                found.append(kw)
+        return found
+
+    def dedupe_preserve_priority(texts):
+        """優先順位を壊さずに重複・包含を整理"""
+        result = []
+
+        for text in texts:
+            if not text:
+                continue
+
+            skip = False
+            for adopted in result:
+                # 完全一致
+                if text == adopted:
+                    skip = True
+                    break
+
+                # 既に優先語が含まれているなら後続は捨てる
+                if text in adopted or adopted in text:
+                    skip = True
+                    break
+
+                # 類似度が高い場合も後続を捨てる
+                similarity = self.calculate_similarity(text, adopted)
+                if similarity >= 0.85:
+                    skip = True
+                    break
+
+            if not skip:
+                result.append(text)
+
+        return result
+
+    try:
+        # 画像読み込み
+        image = cv2.imread(image_path)
+        if image is None:
+            print(f"⚠️  画像読み込み失敗: {image_path}")
             return []
 
-        # キャッシュ
-        if image_path in self.ocr_cache:
-            return self.ocr_cache[image_path]
+        h, w = image.shape[:2]
+        print(f"\n🔍 OCR解析: {os.path.basename(image_path)}")
+        print(f"   画像サイズ: {w}x{h}")
 
-        def strip_labels(text):
-            """不要ラベルを除去"""
-            cleaned = self.clean_ocr_text(text)
-            for label in IGNORE_LABELS:
-                cleaned = cleaned.replace(label, '')
-            cleaned = re.sub(r'\s+', '', cleaned).strip()
-            return cleaned
+        # 🔧 前処理パターン（複数試行）
+        processed_patterns = []
 
-        def extract_statuses(text):
-            """施工前/中/後を抽出"""
-            found = []
-            for status in STATUS_WORDS:
-                if status in text and status not in found:
-                    found.append(status)
-            return found
+        # === パターン1: 標準処理 ===
+        gray1 = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        denoised1 = cv2.fastNlMeansDenoising(gray1, None, h=10, templateWindowSize=7, searchWindowSize=21)
+        _, binary1 = cv2.threshold(denoised1, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        processed_patterns.append(("標準処理", binary1))
 
-        def extract_keywords(text):
-            """重要キーワードを抽出（全文ではなくキーワードだけ返す）"""
-            found = []
-            normalized = re.sub(r'\s+', '', self.clean_ocr_text(text))
-            for kw in IMPORTANT_KEYWORDS:
-                kw_norm = re.sub(r'\s+', '', self.clean_ocr_text(kw))
-                if kw_norm and kw_norm in normalized and kw not in found:
-                    found.append(kw)
-            return found
+        # === パターン2: コントラスト強調 ===
+        gray2 = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        enhanced2 = clahe.apply(gray2)
+        _, binary2 = cv2.threshold(enhanced2, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        processed_patterns.append(("コントラスト強調", binary2))
 
-        def dedupe_preserve_priority(texts):
-            """
-            優先順位を壊さずに重複・包含を整理
-            先に入ったものを優先する
-            """
-            result = []
+        # === パターン3: 適応的二値化 ===
+        gray3 = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        adaptive3 = cv2.adaptiveThreshold(
+            gray3, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            11, 2
+        )
+        processed_patterns.append(("適応的二値化", adaptive3))
 
-            for text in texts:
-                if not text:
-                    continue
+        # === パターン4: シャープネス強化 ===
+        gray4 = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        kernel = np.array([[-1,-1,-1], [-1, 9,-1], [-1,-1,-1]])
+        sharpened4 = cv2.filter2D(gray4, -1, kernel)
+        _, binary4 = cv2.threshold(sharpened4, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        processed_patterns.append(("シャープネス強化", binary4))
 
-                skip = False
-                for adopted in result:
-                    # 完全一致
-                    if text == adopted:
-                        skip = True
-                        break
+        print(f"   前処理パターン: {len(processed_patterns)}種類")
 
-                    # 既に優先語が含まれているなら後続は捨てる
-                    if text in adopted or adopted in text:
-                        skip = True
-                        break
+        # OCR結果を統合
+        all_results = {}  # {cleaned_text: (confidence, method)}
 
-                    # 類似度が高い場合も後続を捨てる
-                    similarity = self.calculate_similarity(text, adopted)
-                    if similarity >= 0.85:
-                        skip = True
-                        break
+        found_status_early = False
+        found_keyword_early = False
 
-                if not skip:
-                    result.append(text)
+        for method_name, processed in processed_patterns:
+            try:
+                # リサイズ（認識率向上）
+                scale = 2.0
+                ph, pw = processed.shape
+                resized = cv2.resize(
+                    processed,
+                    (int(pw*scale), int(ph*scale)),
+                    interpolation=cv2.INTER_CUBIC
+                )
 
-            return result
+                # 🔧 Tesseract設定（日本語＋英語）
+                custom_config = r'--oem 3 --psm 6 -l jpn+eng'
 
-        try:
-            processed_images = self.preprocess_image(image_path)
+                # OCR実行（詳細データ取得）
+                data = pytesseract.image_to_data(
+                    resized,
+                    config=custom_config,
+                    output_type=pytesseract.Output.DICT
+                )
 
-            if processed_images is None:
-                print(f"⚠️  画像読み込み失敗: {image_path}")
-                return []
+                # 結果を解析
+                n_boxes = len(data['text'])
+                detected_count = 0
 
-            print(f"\n🔍 OCR解析: {os.path.basename(image_path)}")
-            print(f"   前処理パターン: {len(processed_images)}種類")
+                for i in range(n_boxes):
+                    text = data['text'][i].strip()
+                    conf = float(data['conf'][i])
 
-            # OCR結果を統合（同一文字列は信頼度の高い方を採用）
-            all_results = {}  # {cleaned_text: (confidence, method, source)}
-
-            found_status_early = False
-            found_keyword_early = False
-
-            for method_name, processed in processed_images:
-                try:
-                    easyocr_results = []
-                    tesseract_results = []
-                    
-                    # EasyOCR実行
-                    if USE_EASYOCR and self.easyocr_reader:
-                        easyocr_results = self.perform_easyocr_ocr(processed)
-                    
-                    # Tesseract実行
-                    if USE_TESSERACT:
-                        tesseract_results = self.perform_tesseract_ocr(processed)
-                    
-                    # 結果を統合
-                    merged = self.merge_ocr_results(easyocr_results, tesseract_results)
-                    
-                    print(f"   📸 {method_name}: EasyOCR={len(easyocr_results)}個, Tesseract={len(tesseract_results)}個, 統合={len(merged)}個")
-
-                    for text, (confidence, source) in merged.items():
-                        cleaned = self.clean_ocr_text(text.strip())
-                        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-
-                        # 1文字以下は除外
-                        if len(cleaned) <= 1:
-                            continue
-
-                        if cleaned not in all_results or confidence > all_results[cleaned][0]:
-                            all_results[cleaned] = (confidence, method_name, source)
-
-                        # 早期終了判定用
-                        if any(status in cleaned for status in STATUS_WORDS):
-                            found_status_early = True
-
-                        if any(kw in cleaned for kw in IMPORTANT_KEYWORDS):
-                            found_keyword_early = True
-
-                    # 早期終了
-                    if FAST_MODE and found_status_early and found_keyword_early:
-                        print(f"   ⚡ 通常OCRを早期終了（施工状況 + 重要キーワードを取得）")
-                        break
-
-                except Exception as e:
-                    print(f"   ⚠️  {method_name}でエラー: {e}")
-                    continue
-
-            print(f"\n   検出総数: {len(all_results)}個")
-
-            # 優先順位別に格納
-            status_texts = []
-            important_keyword_texts = []
-            high_confidence_texts = []
-
-            # 信頼度順に見た方がログも分かりやすい
-            sorted_results = sorted(
-                all_results.items(),
-                key=lambda x: x[1][0],
-                reverse=True
-            )
-
-            for text, (confidence, method, source) in sorted_results:
-                print(f"   📝 '{text}' (信頼度: {confidence:.2f}, 方法: {method}, エンジン: {source})")
-
-                # 1文字以下は除外
-                if len(text) <= 1:
-                    print(f"      ⏭️  短すぎる（1文字以下）")
-                    continue
-
-                # ラベル除去後テキスト
-                stripped_text = strip_labels(text)
-
-                if len(stripped_text) <= 1:
-                    print(f"      ⏭️  ラベル除去後が短すぎる")
-                    continue
-
-                # 🔧 修正: 除外チェックを最優先に実行
-                if self.should_exclude_text(stripped_text):
-                    print(f"      🚫 除外対象（除外キーワード一致）")
-                    continue
-
-                # 1. 施工前 / 施工中 / 施工後
-                statuses = extract_statuses(stripped_text)
-                if statuses:
-                    print(f"      ⭐ 施工状況を採用: {statuses}")
-                    for status in statuses:
-                        if status not in status_texts:
-                            status_texts.append(status)
-                    continue
-
-                # 2. 重要キーワード（全文ではなくキーワードだけ）
-                keywords = extract_keywords(stripped_text)
-                if keywords:
-                    print(f"      ⭐⭐ 重要キーワードのみ採用: {keywords}")
-                    for kw in keywords:
-                        if kw not in important_keyword_texts:
-                            important_keyword_texts.append(kw)
-                    continue
-
-                # 3. 高信頼度全文（0.83以上）
-                if confidence >= HIGH_CONFIDENCE_THRESHOLD:
-                    if not self.should_exclude_text(stripped_text):
-                        print(f"      ⭐⭐⭐ 高信頼度({confidence:.2f}) → 全文採用")
-                        if stripped_text not in high_confidence_texts:
-                            high_confidence_texts.append(stripped_text)
-                        continue
-                    else:
-                        print(f"      🚫 除外対象")
+                    if not text or conf <= 0:
                         continue
 
-                print(f"      ❌ 不採用")
+                    detected_count += 1
 
-            # 優先順位順で統合
-            texts = status_texts + important_keyword_texts + high_confidence_texts
+                    # 信頼度を正規化（0.0～1.0）
+                                        normalized_conf = max(0.0, min(1.0, conf / 100.0))
+                    adjusted_conf = normalized_conf * TESSERACT_PRIORITY
 
-            # 優先順位を維持したまま重複・類似除去
-            texts = dedupe_preserve_priority(texts)
+                    cleaned = self.clean_ocr_text(text.strip())
+                    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
 
-            print(f"\n   📊 採用結果:")
-            print(f"      🥇 施工状況: {status_texts}")
-            print(f"      🥈 重要キーワード: {important_keyword_texts}")
-            print(f"🥉 高信頼度全文(0.83+): {high_confidence_texts}")
-            print(f"      ✅ 最終採用順: {texts}\n")
+                    # 1文字以下は除外
+                    if len(cleaned) <= 1:
+                        continue
 
-            self.ocr_cache[image_path] = texts
-            return texts
+                    # 既存結果より信頼度が高い場合のみ更新
+                    if cleaned not in all_results or adjusted_conf > all_results[cleaned][0]:
+                        all_results[cleaned] = (adjusted_conf, method_name)
 
-        except Exception as e:
-            print(f"⚠️  OCRエラー: {e}")
-            return []
+                    # 早期終了判定用
+                    if any(status in cleaned for status in STATUS_WORDS):
+                        found_status_early = True
+
+                    if any(kw in cleaned for kw in IMPORTANT_KEYWORDS):
+                        found_keyword_early = True
+
+                print(f"   📸 {method_name}: {detected_count}個検出")
+
+                # 早期終了（施工状況とキーワードが見つかったら）
+                if FAST_MODE and found_status_early and found_keyword_early:
+                    print(f"   ⚡ 早期終了（施工状況 + 重要キーワード取得）")
+                    break
+
+            except Exception as e:
+                print(f"   ⚠️  {method_name}でエラー: {e}")
+                continue
+
+        print(f"\n   検出総数: {len(all_results)}個")
+
+        # 優先順位別に格納
+        status_texts = []
+        important_keyword_texts = []
+        high_confidence_texts = []
+
+        # 信頼度順にソート
+        sorted_results = sorted(
+            all_results.items(),
+            key=lambda x: x[1][0],
+            reverse=True
+        )
+
+        for text, (confidence, method) in sorted_results:
+            print(f"   📝 '{text}' (信頼度: {confidence:.2f}, 方法: {method})")
+
+            # 1文字以下は除外
+            if len(text) <= 1:
+                print(f"      ⏭️  短すぎる（1文字以下）")
+                continue
+
+            # ラベル除去後テキスト
+            stripped_text = strip_labels(text)
+
+            if len(stripped_text) <= 1:
+                print(f"      ⏭️  ラベル除去後が短すぎる")
+                continue
+
+            # 🔧 除外チェックを最優先
+            if self.should_exclude_text(stripped_text):
+                print(f"      🚫 除外対象（除外キーワード一致）")
+                continue
+
+            # 1. 施工前 / 施工中 / 施工後
+            statuses = extract_statuses(stripped_text)
+            if statuses:
+                print(f"      ⭐ 施工状況を採用: {statuses}")
+                for status in statuses:
+                    if status not in status_texts:
+                        status_texts.append(status)
+                continue
+
+            # 2. 重要キーワード（全文ではなくキーワードだけ）
+            keywords = extract_keywords(stripped_text)
+            if keywords:
+                print(f"      ⭐⭐ 重要キーワードのみ採用: {keywords}")
+                for kw in keywords:
+                    if kw not in important_keyword_texts:
+                        important_keyword_texts.append(kw)
+                continue
+
+            # 3. 高信頼度全文（0.70以上）
+            if confidence >= HIGH_CONFIDENCE_THRESHOLD:
+                if not self.should_exclude_text(stripped_text):
+                    print(f"      ⭐⭐⭐ 高信頼度({confidence:.2f}) → 全文採用")
+                    if stripped_text not in high_confidence_texts:
+                        high_confidence_texts.append(stripped_text)
+                    continue
+                else:
+                    print(f"      🚫 除外対象")
+                    continue
+
+            print(f"      ❌ 不採用")
+
+        # 優先順位順で統合
+        texts = status_texts + important_keyword_texts + high_confidence_texts
+
+        # 優先順位を維持したまま重複・類似除去
+        texts = dedupe_preserve_priority(texts)
+
+        print(f"\n   📊 採用結果:")
+        print(f"      🥇 施工状況: {status_texts}")
+        print(f"      🥈 重要キーワード: {important_keyword_texts}")
+        print(f"      🥉 高信頼度全文(0.70+): {high_confidence_texts}")
+        print(f"      ✅ 最終採用順: {texts}\n")
+
+        self.ocr_cache[image_path] = texts
+        return texts
+
+    except Exception as e:
+        print(f"⚠️  OCRエラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return []    
     
     def normalize_for_match(self, text):
         """比較用に正規化"""
