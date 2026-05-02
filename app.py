@@ -83,44 +83,48 @@ with st.spinner("画像を準備中..."):
 try:
     renamer = ImageRenamer(file_paths)
     
-    if use_ocr:
-        with st.spinner("OCRエンジン初期化中..."):
-            renamer.initialize_ocr()
-        
-if use_ocr:
-    with st.spinner("OCRエンジン初期化中..."):
-        renamer.initialize_ocr()
-    
-    if debug_mode:
-        st.success("✅ OCRエンジン初期化完了")
-        
-        # Tesseract確認
-        try:
-            import subprocess
-            result = subprocess.run(['tesseract', '--version'], 
-                                  capture_output=True, text=True, timeout=5)
-            
-            if result.returncode == 0:
-                st.info(f"📌 Tesseract インストール確認OK")
-                with st.expander("詳細を表示"):
-                    st.code(result.stdout)
-            else:
-                st.warning("⚠️ Tesseractコマンドが実行できません")
-                
-        except FileNotFoundError:
-            st.error("❌ Tesseractがインストールされていません")
-            
-        except subprocess.TimeoutExpired:
-            st.warning("⚠️ Tesseractコマンドがタイムアウトしました")
-            
-        except Exception as e:
-            st.warning(f"⚠️ Tesseract確認エラー: {e}")
-    
 except Exception as e:
     st.error(f"❌ 初期化エラー: {e}")
     if debug_mode:
         st.code(traceback.format_exc())
     st.stop()
+
+# OCR初期化
+if use_ocr:
+    try:
+        with st.spinner("OCRエンジン初期化中..."):
+            renamer.initialize_ocr()
+        
+        if debug_mode:
+            st.success("✅ OCRエンジン初期化完了")
+            
+            # Tesseract確認
+            try:
+                import subprocess
+                result = subprocess.run(['tesseract', '--version'], 
+                                      capture_output=True, text=True, timeout=5)
+                
+                if result.returncode == 0:
+                    st.info(f"📌 Tesseract インストール確認OK")
+                    with st.expander("詳細を表示"):
+                        st.code(result.stdout)
+                else:
+                    st.warning("⚠️ Tesseractコマンドが実行できません")
+                    
+            except FileNotFoundError:
+                st.error("❌ Tesseractがインストールされていません")
+                
+            except subprocess.TimeoutExpired:
+                st.warning("⚠️ Tesseractコマンドがタイムアウトしました")
+                
+            except Exception as e:
+                st.warning(f"⚠️ Tesseract確認エラー: {e}")
+    
+    except Exception as e:
+        st.error(f"❌ OCR初期化エラー: {e}")
+        if debug_mode:
+            st.code(traceback.format_exc())
+        st.stop()
 
 # ========== デバッグモード: OCR詳細表示 ==========
 
