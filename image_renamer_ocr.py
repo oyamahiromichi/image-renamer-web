@@ -605,10 +605,18 @@ class ImageRenamer:
             """重要キーワードを抽出（全文ではなくキーワードだけ返す）"""
             found = []
             normalized = re.sub(r'\s+', '', self.clean_ocr_text(text))
-            for kw in IMPORTANT_KEYWORDS:
+            
+            # 設定ファイルから重要キーワードを取得
+            important_keywords = self.config.get('IMPORTANT_KEYWORDS', [])
+            if not important_keywords:
+                important_keywords = IMPORTANT_KEYWORDS  # フォールバック
+            
+            for kw in important_keywords:
                 kw_norm = re.sub(r'\s+', '', self.clean_ocr_text(kw))
                 if kw_norm and kw_norm in normalized and kw not in found:
                     found.append(kw)
+                    print(f"[重要キーワード検出] {kw} (信頼度に関係なく抽出)")
+            
             return found
 
         def dedupe_preserve_priority(texts):
@@ -1241,6 +1249,18 @@ class ImageRenamer:
             if USE_INFO_PANEL_OCR:
                 panel_texts = self.perform_info_panel_ocr(filepath)
 
+            # === 【新規追加】重要キーワードを信頼度無視で強制抽出 ===
+            important_keywords = self.config.get('IMPORTANT_KEYWORDS', [])
+            if not important_keywords:
+                important_keywords = IMPORTANT_KEYWORDS
+            
+            # 全OCR結果から重要キーワードを検索
+            all_ocr_text = ' '.join(texts + panel_texts)
+            for kw in important_keywords:
+                if kw in all_ocr_text:
+                    add_part(kw, protect=True)
+                    print(f"   🔑 [重要キーワード強制抽出] {kw}")            
+
             # ラベル情報抽出
             labeled_info = self.extract_labeled_panel_info(panel_texts)
 
@@ -1325,6 +1345,19 @@ class ImageRenamer:
         if filtered_parts:
             ocr_part = '_'.join(filtered_parts[:8])
             base_name = f"{base_name}_{ocr_part}"
+
+        # === 【新規追加】除外キーワードを最後に適用 ===
+        exclude_words = self.config.get('EXCLUDE_WORDS', [])
+        if exclude_words:
+            for exclude in exclude_words:
+                if exclude in base_name:
+                    base_name = base_name.replace(exclude, '')
+                    print(f"      🚫 [除外キーワード削除] {exclude}")
+            
+            # 連続するアンダースコアを1つに
+            base_name = re.sub(r'_+', '_', base_name)
+            # 先頭・末尾のアンダースコアを削除
+            base_name = base_name.strip('_')
 
         if len(base_name) > MAX_FILENAME_LENGTH:
             base_name = base_name[:MAX_FILENAME_LENGTH]
