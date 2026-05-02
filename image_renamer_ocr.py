@@ -418,6 +418,13 @@ class ImageRenamer:
     def perform_tesseract_ocr(self, processed_image):
         """Tesseract OCRを実行（信頼度付き）"""
         try:
+            # 🔧 修正: 日本語OCR用の最適設定
+            # --psm 6: Uniform text block（均一なテキストブロック）
+            # --oem 3: LSTM neural netベース（最新）
+            # -c preserve_interword_spaces=1: 単語間スペース保持
+        
+            custom_config = r'--psm 6 --oem 3 -c preserve_interword_spaces=1'            
+            
             # 詳細データを取得（信頼度含む）
             data = pytesseract.image_to_data(
                 processed_image,
