@@ -17,7 +17,7 @@ from PIL import Image
 from PIL.ExifTags import TAGS
 import cv2
 import numpy as np
-import easyocr
+#import easyocr
 import pytesseract
 
 # Tesseract実行ファイルのパス（環境に応じて調整）
@@ -254,14 +254,9 @@ class ImageRenamer:
     
     def initialize_ocr(self):
         """OCRリーダーを初期化（一度だけ）"""
-        if USE_EASYOCR and self.easyocr_reader is None:
-            print("🔧 EasyOCR初期化中...")
-            self.easyocr_reader = easyocr.Reader(
-                ['ja', 'en'],
-                gpu=False,
-                model_storage_directory=OCR_MODEL_DIR,
-                download_enabled=False
-            )
+        # EasyOCRは使用しない
+        pass
+
             print("✅ EasyOCR初期化完了")
         
         if USE_TESSERACT:
