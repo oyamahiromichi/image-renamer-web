@@ -165,7 +165,6 @@ if debug_mode:
 
 # ========== リネームプレビュー ==========
 
-```python
 st.markdown("---")
 st.subheader("📋 リネーム後のファイル名プレビュー")
 
