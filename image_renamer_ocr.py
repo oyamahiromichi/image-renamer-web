@@ -7,7 +7,16 @@
 import sys
 import io
 import configparser
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+# 🔧 修正: Streamlit環境用にログ出力を無効化
+class DummyWriter:
+    def write(self, text):
+        pass
+    def flush(self):
+        pass
+
+sys.stdout = DummyWriter()
+sys.stderr = DummyWriter()
 
 import os
 import re
