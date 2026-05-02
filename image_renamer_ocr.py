@@ -257,7 +257,7 @@ class ImageRenamer:
         # EasyOCRは使用しない
         pass
 
-            print("✅ EasyOCR初期化完了")
+            #print("✅ EasyOCR初期化完了")
         
         if USE_TESSERACT:
             try:
