@@ -9,9 +9,150 @@ import io
 from datetime import datetime
 import traceback
 import shutil
+import configparser  # ← 追加
 
 # 既存のImageRenamerクラスをインポート
 from image_renamer_ocr import ImageRenamer
+
+
+# ===== 新しい関数群（ここから追加） =====
+
+def load_config_from_ini():
+    """INIファイルから設定を読み込み"""
+    config = {
+        'IMPORTANT_KEYWORDS': [],
+        'EXCLUDE_WORDS': [],
+        'OCR_REPLACEMENTS': {}
+    }
+    
+    ini_path = Path('ocr_keywords.ini')
+    if not ini_path.exists():
+        return config
+    
+    try:
+        parser = configparser.ConfigParser()
+        parser.read(ini_path, encoding='utf-8-sig')
+        
+        if parser.has_section('KEYWORDS') and parser.has_option('KEYWORDS', 'important'):
+            keywords = parser.get('KEYWORDS', 'important')
+            config['IMPORTANT_KEYWORDS'] = [kw.strip() for kw in keywords.split(',') if kw.strip()]
+        
+        if parser.has_section('EXCLUDE') and parser.has_option('EXCLUDE', 'words'):
+            words = parser.get('EXCLUDE', 'words')
+            config['EXCLUDE_WORDS'] = [w.strip() for w in words.split(',') if w.strip()]
+        
+        if parser.has_section('REPLACEMENTS'):
+            for key, value in parser.items('REPLACEMENTS'):
+                if key != 'default':
+                    config['OCR_REPLACEMENTS'][key] = value
+    
+    except Exception as e:
+        st.error(f"設定ファイル読み込みエラー: {e}")
+    
+    return config
+
+
+def save_keywords_to_ini(section_type, keywords):
+    """キーワードをINIファイルに保存"""
+    ini_path = Path('ocr_keywords.ini')
+    
+    try:
+        parser = configparser.ConfigParser()
+        
+        # 既存のINIファイルを読み込み
+        if ini_path.exists():
+            parser.read(ini_path, encoding='utf-8-sig')
+        
+        # セクションがなければ作成
+        if section_type == 'IMPORTANT_KEYWORDS':
+            if not parser.has_section('KEYWORDS'):
+                parser.add_section('KEYWORDS')
+            parser.set('KEYWORDS', 'important', ','.join(keywords))
+        
+        elif section_type == 'EXCLUDE_WORDS':
+            if not parser.has_section('EXCLUDE'):
+                parser.add_section('EXCLUDE')
+            parser.set('EXCLUDE', 'words', ','.join(keywords))
+        
+        # ファイルに書き込み
+        with open(ini_path, 'w', encoding='utf-8') as f:
+            parser.write(f)
+        
+        return True
+    
+    except Exception as e:
+        st.error(f"保存エラー: {e}")
+        return False
+
+
+def show_keyword_editor():
+    """キーワード編集画面（Streamlit版）"""
+    st.title("⚙️ キーワード設定")
+    
+    config = load_config_from_ini()
+    
+    tab1, tab2 = st.tabs(["📌 重要キーワード", "🚫 除外キーワード"])
+    
+    # ===== タブ1: 重要キーワード =====
+    with tab1:
+        st.subheader("📌 重要キーワード")
+        st.info("画像から抽出する重要なキーワードを登録します")
+        
+        keywords = config.get('IMPORTANT_KEYWORDS', [])
+        
+        keywords_text = st.text_area(
+            "キーワード（1行に1つ）",
+            value="\n".join(keywords),
+            height=400,
+            help="1行に1つのキーワードを入力してください"
+        )
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            if st.button("💾 重要キーワードを保存", type="primary", use_container_width=True):
+                new_keywords = [kw.strip() for kw in keywords_text.split('\n') if kw.strip()]
+                
+                if save_keywords_to_ini('IMPORTANT_KEYWORDS', new_keywords):
+                    st.success(f"✅ {len(new_keywords)}個のキーワードを保存しました")
+                    st.rerun()
+                else:
+                    st.error("❌ 保存に失敗しました")
+        
+        with col2:
+            st.metric("登録数", len(keywords))
+    
+    # ===== タブ2: 除外キーワード =====
+    with tab2:
+        st.subheader("🚫 除外キーワード")
+        st.info("ファイル名に含めたくないキーワードを登録します")
+        
+        exclude_words = config.get('EXCLUDE_WORDS', [])
+        
+        exclude_text = st.text_area(
+            "除外キーワード（1行に1つ）",
+            value="\n".join(exclude_words),
+            height=400
+        )
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            if st.button("💾 除外キーワードを保存", type="primary", use_container_width=True):
+                new_exclude = [kw.strip() for kw in exclude_text.split('\n') if kw.strip()]
+                
+                if save_keywords_to_ini('EXCLUDE_WORDS', new_exclude):
+                    st.success(f"✅ {len(new_exclude)}個の除外キーワードを保存しました")
+                    st.rerun()
+                else:
+                    st.error("❌ 保存に失敗しました")
+        
+        with col2:
+            st.metric("登録数", len(exclude_words))
+
+
+# ===== 新しい関数群（ここまで） =====
+
 
 st.set_page_config(
     page_title="画像リネームツール",
@@ -24,6 +165,25 @@ st.markdown("**iPadでも使える Web版**")
 
 # サイドバー設定
 st.sidebar.header("⚙️ 設定")
+
+# ===== キーワード設定ボタン（新規追加） =====
+if st.sidebar.button("🔧 キーワード設定を開く", use_container_width=True):
+    st.session_state.show_keyword_editor = True
+
+st.sidebar.markdown("---")  # 区切り線
+
+# キーワードエディタを表示
+if st.session_state.get('show_keyword_editor', False):
+    show_keyword_editor()
+    
+    # 閉じるボタン
+    if st.button("← メイン画面に戻る"):
+        st.session_state.show_keyword_editor = False
+        st.rerun()
+    
+    st.stop()  # メイン処理を止める
+
+# ===== ここから既存の設定項目 =====
 prefix = st.sidebar.text_input("プレフィックス", "photo")
 include_date = st.sidebar.checkbox("日付を含める", True)
 use_ocr = st.sidebar.checkbox("OCR使用", True)
