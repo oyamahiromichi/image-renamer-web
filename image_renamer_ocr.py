@@ -705,8 +705,7 @@ class ImageRenamer:
 
                         detected_count += 1
 
-                        # 信頼度を正規化（0.0～1.0）
-                        normalized_conf = max(0.0, min
+                                                # 信頼度を正規化（0.0～1.0）
                         normalized_conf = max(0.0, min(1.0, conf / 100.0))
                         adjusted_conf = normalized_conf * TESSERACT_PRIORITY
 
@@ -819,7 +818,7 @@ class ImageRenamer:
             print(f"⚠️  OCRエラー: {e}")
             import traceback
             traceback.print_exc()
-            return []    
+            return []
     
     def normalize_for_match(self, text):
         """比較用に正規化"""
