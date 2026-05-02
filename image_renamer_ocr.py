@@ -29,8 +29,8 @@ import numpy as np
 #import easyocr
 import pytesseract
 
-# Tesseract実行ファイルのパス（環境に応じて調整）
-#pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# Tesseract実行ファイルのパス（Streamlit Cloudでは不要）
+# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 # === 設定 ===
 PREFIX = "photo"
