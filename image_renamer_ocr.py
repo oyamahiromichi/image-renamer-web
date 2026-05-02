@@ -26,10 +26,10 @@ from PIL import Image
 from PIL.ExifTags import TAGS
 import cv2
 import numpy as np
-#import easyocr
 import pytesseract
 
-# Tesseract実行ファイルのパス（Streamlit Cloudでは不要）
+# 🔧 Streamlit Cloud用：Tesseractは自動検出されるためパス設定不要
+# ローカルWindows環境で実行する場合のみ以下のコメントを外してください
 # pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 # === 設定 ===
