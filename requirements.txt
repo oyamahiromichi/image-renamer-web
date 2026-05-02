@@ -1,8 +1,4 @@
-streamlit==1.31.0
-pillow==10.2.0
-opencv-python-headless==4.9.0.80
-easyocr==1.7.0
-pytesseract==0.3.10
-numpy==1.26.3
-torch==2.1.2
-torchvision==0.16.2
+streamlit
+pillow
+opencv-python-headless
+pytesseract
